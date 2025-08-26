@@ -47,14 +47,3 @@ It collects candidate details and generates technical questions based on their t
    ```toml
    GEMINI_API_KEY="your_api_key_here"
    ```
-
----
-
-## 📸 Demo
-- Record a Loom video walkthrough showing:
-  1. Opening the chatbot.
-  2. Entering candidate details (Name, Email, Tech Stack).
-  3. Displaying the generated technical questions.
-  4. Graceful exit message.
-
-(Add Loom video link or screenshots here.)
