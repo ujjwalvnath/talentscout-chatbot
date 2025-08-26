@@ -3,9 +3,7 @@ from google import genai
 
 # Load Gemini API key from Streamlit Secrets
 api_key = st.secrets["GEMINI_API_KEY"]
-
-genai.configure(api_key=api_key)
-client = genai.Client()
+client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
 st.title("TalentScout Hiring Assistant 🤖")
 
