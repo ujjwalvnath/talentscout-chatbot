@@ -4,140 +4,114 @@ from google import genai
 # Initialize Gemini client
 client = genai.Client(api_key=st.secrets["GEMINI_API_KEY"])
 
+st.set_page_config(page_title="TalentScout Chatbot", page_icon="🤖")
 st.title("TalentScout Hiring Assistant 🤖")
 
-# Initialize state
+# Initialize session state
+if "chat_history" not in st.session_state:
+    st.session_state.chat_history = []
 if "step" not in st.session_state:
     st.session_state.step = "greeting"
+if "candidate" not in st.session_state:
     st.session_state.candidate = {}
+if "questions" not in st.session_state:
     st.session_state.questions = []
+if "current_q" not in st.session_state:
     st.session_state.current_q = 0
-    st.session_state.answers = []
 
-def ask_gemini(prompt: str) -> str:
+# Helper: add a message to history
+def add_message(role, content):
+    st.session_state.chat_history.append({"role": role, "content": content})
+
+# Helper: show chat history
+for msg in st.session_state.chat_history:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# Helper: generate questions from Gemini
+def generate_questions(tech_stack):
+    prompt = f"Generate 3–5 concise technical interview QUESTIONS only (no answers, no explanations) for: {tech_stack}."
     response = client.models.generate_content(
-        model="gemini-1.5-flash",  # or gemini-2.0-flash
+        model="gemini-1.5-flash",
         contents=prompt
     )
-    return response.text.strip()
+    return [q.strip("- ").strip() for q in response.text.split("\n") if q.strip()]
 
-def bot_say(text):
-    st.markdown(f"**Assistant:** {text}")
-
-def user_say(text):
-    st.markdown(f"**You:** {text}")
-
-# Greeting
-if st.session_state.step == "greeting":
-    bot_say("Hello! I'm TalentScout Assistant. I’ll gather some details from you, "
-            "then ask technical questions based on your skills. "
-            "Type 'exit' anytime to end.")
+# Start conversation
+if st.session_state.step == "greeting" and not st.session_state.chat_history:
+    add_message("assistant", "Hello! I'm TalentScout Assistant. "
+               "I'll gather some details from you step by step. "
+               "Type 'exit' anytime to quit. Let's begin — what is your **Full Name**?")
     st.session_state.step = "ask_name"
+    st.rerun()
 
-# Info gathering sequence
-elif st.session_state.step == "ask_name":
-    name = st.text_input("Please enter your Full Name:", key="name")
-    if name:
-        if name.lower() in ["exit", "quit", "bye"]:
-            st.session_state.step = "end"
-            st.experimental_rerun()
-        st.session_state.candidate["name"] = name
-        user_say(name)
-        st.session_state.step = "ask_email"
-        st.experimental_rerun()
-
-elif st.session_state.step == "ask_email":
-    email = st.text_input("Please enter your Email:", key="email")
-    if email:
-        if email.lower() in ["exit", "quit", "bye"]:
-            st.session_state.step = "end"
-            st.experimental_rerun()
-        st.session_state.candidate["email"] = email
-        user_say(email)
-        st.session_state.step = "ask_phone"
-        st.experimental_rerun()
-
-elif st.session_state.step == "ask_phone":
-    phone = st.text_input("Please enter your Phone Number:", key="phone")
-    if phone:
-        if phone.lower() in ["exit", "quit", "bye"]:
-            st.session_state.step = "end"
-            st.experimental_rerun()
-        st.session_state.candidate["phone"] = phone
-        user_say(phone)
-        st.session_state.step = "ask_exp"
-        st.experimental_rerun()
-
-elif st.session_state.step == "ask_exp":
-    exp = st.text_input("Years of Experience:", key="exp")
-    if exp:
-        if exp.lower() in ["exit", "quit", "bye"]:
-            st.session_state.step = "end"
-            st.experimental_rerun()
-        st.session_state.candidate["experience"] = exp
-        user_say(exp)
-        st.session_state.step = "ask_position"
-        st.experimental_rerun()
-
-elif st.session_state.step == "ask_position":
-    pos = st.text_input("Desired Position(s):", key="pos")
-    if pos:
-        if pos.lower() in ["exit", "quit", "bye"]:
-            st.session_state.step = "end"
-            st.experimental_rerun()
-        st.session_state.candidate["position"] = pos
-        user_say(pos)
-        st.session_state.step = "ask_location"
-        st.experimental_rerun()
-
-elif st.session_state.step == "ask_location":
-    loc = st.text_input("Current Location:", key="loc")
-    if loc:
-        if loc.lower() in ["exit", "quit", "bye"]:
-            st.session_state.step = "end"
-            st.experimental_rerun()
-        st.session_state.candidate["location"] = loc
-        user_say(loc)
-        st.session_state.step = "ask_tech"
-        st.experimental_rerun()
-
-elif st.session_state.step == "ask_tech":
-    tech = st.text_input("Tech Stack (e.g., Python, Django, React):", key="tech")
-    if tech:
-        if tech.lower() in ["exit", "quit", "bye"]:
-            st.session_state.step = "end"
-            st.experimental_rerun()
-        st.session_state.candidate["tech_stack"] = tech
-        user_say(tech)
-        # Generate questions with Gemini
-        prompt = f"Generate 3–5 clear and concise technical interview QUESTIONS only (no answers, no explanations) for: {tech}."
-        q_text = ask_gemini(prompt)
-        st.session_state.questions = [q.strip("- ").strip() for q in q_text.split("\n") if q.strip()]
-        st.session_state.step = "ask_question"
-        st.experimental_rerun()
-
-# Interactive Q&A
-elif st.session_state.step == "ask_question":
-    q_idx = st.session_state.current_q
-    if q_idx < len(st.session_state.questions):
-        question = st.session_state.questions[q_idx]
-        bot_say(f"Q{q_idx+1}: {question}")
-        ans = st.text_area("Your Answer:", key=f"ans_{q_idx}")
-        if st.button("Submit Answer", key=f"submit_{q_idx}") and ans:
-            if ans.lower() in ["exit", "quit", "bye"]:
-                st.session_state.step = "end"
-                st.experimental_rerun()
-            user_say(ans)
-            st.session_state.answers.append({"question": question, "answer": ans})
-            bot_say("Thanks for your response! Let's move to the next question.")
-            st.session_state.current_q += 1
-            st.experimental_rerun()
-    else:
+# User input field
+if user_input := st.chat_input("Type your response..."):
+    # Exit condition
+    if user_input.lower() in ["exit", "quit", "bye"]:
+        add_message("user", user_input)
+        add_message("assistant", "✅ Thank you for your time! Your responses have been recorded. Goodbye.")
         st.session_state.step = "end"
-        st.experimental_rerun()
+        st.rerun()
 
-# End
-elif st.session_state.step == "end":
-    bot_say("✅ Thank you for your time! Your responses have been recorded. "
-            "Our team will review and reach out to you with next steps.")
-    st.stop()
+    add_message("user", user_input)
+
+    # Conversation flow
+    if st.session_state.step == "ask_name":
+        st.session_state.candidate["name"] = user_input
+        add_message("assistant", "Got it! Please provide your **Email Address**.")
+        st.session_state.step = "ask_email"
+
+    elif st.session_state.step == "ask_email":
+        if "@" not in user_input:  # simple fallback
+            add_message("assistant", "That doesn’t look like a valid email. Could you re-enter your **Email Address**?")
+        else:
+            st.session_state.candidate["email"] = user_input
+            add_message("assistant", "Thanks! Now share your **Phone Number**.")
+            st.session_state.step = "ask_phone"
+
+    elif st.session_state.step == "ask_phone":
+        if not user_input.isdigit():
+            add_message("assistant", "Hmm, phone numbers should be digits only. Please re-enter your **Phone Number**.")
+        else:
+            st.session_state.candidate["phone"] = user_input
+            add_message("assistant", "Noted. How many **Years of Experience** do you have?")
+            st.session_state.step = "ask_exp"
+
+    elif st.session_state.step == "ask_exp":
+        if not user_input.isdigit():
+            add_message("assistant", "Please enter a number for your **Years of Experience**.")
+        else:
+            st.session_state.candidate["experience"] = user_input
+            add_message("assistant", "Great! What **Position(s)** are you applying for?")
+            st.session_state.step = "ask_position"
+
+    elif st.session_state.step == "ask_position":
+        st.session_state.candidate["position"] = user_input
+        add_message("assistant", "Got it. Where is your **Current Location**?")
+        st.session_state.step = "ask_location"
+
+    elif st.session_state.step == "ask_location":
+        st.session_state.candidate["location"] = user_input
+        add_message("assistant", "Perfect. Finally, tell me your **Tech Stack** (comma-separated, e.g., Python, Django, React).")
+        st.session_state.step = "ask_tech"
+
+    elif st.session_state.step == "ask_tech":
+        st.session_state.candidate["tech_stack"] = user_input
+        add_message("assistant", "Thanks! Generating some technical questions for you...")
+        st.session_state.questions = generate_questions(user_input)
+        st.session_state.step = "ask_question"
+        st.rerun()
+
+    elif st.session_state.step == "ask_question":
+        q_idx = st.session_state.current_q
+        if q_idx < len(st.session_state.questions):
+            question = st.session_state.questions[q_idx]
+            add_message("assistant", f"Q{q_idx+1}: {question}")
+            st.session_state.current_q += 1
+        else:
+            add_message("assistant", "✅ That’s all the questions I had. Thank you for your responses! "
+                        "Our team will review and reach out to you soon.")
+            st.session_state.step = "end"
+
+    st.rerun()
