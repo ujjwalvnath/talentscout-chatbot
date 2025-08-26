@@ -8,8 +8,10 @@ It collects candidate details and generates technical questions based on their t
 ## 🚀 Features
 - Collects candidate info (Name, Email, Tech Stack, etc.)
 - Generates 3–5 interview questions for declared technologies
-- Clean, step-by-step Streamlit UI
+- Validates candidate info and prevents context deviation for interview questions.
+- Clean, interactive chatbot Streamlit UI
 - Powered by Google Gemini API
+  
 
 ---
 
