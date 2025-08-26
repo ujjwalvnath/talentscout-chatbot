@@ -38,30 +38,68 @@ def show_history():
 def is_valid_label(text: str) -> bool:
     return text.strip().upper().startswith("VALID")
 
-def validate_with_gemini(question, answer):
+def validate_with_gemini(question, answer, q_type="interview"):
+    """
+    q_type: "info" or "interview"
+    Returns the raw model response (either "VALID" or a short polite retry sentence).
+    """
     context = "\n".join([f"{m['role']}: {m['content']}" for m in ss.chat_history])
+
     prompt = f"""
 You are TalentScout Assistant, validating a candidate's answer.
 
 Conversation so far:
 {context}
 
+Question Type: {q_type}
 Question: "{question}"
 Candidate's answer: "{answer}"
 
-Task:
-1. If the answer is at least somewhat relevant to the question → respond ONLY with "VALID".
-   - Do not require details, examples, or technical accuracy.
-   - Accept short or incomplete answers if they are still on-topic.
-2. If the answer is completely off-topic or unrelated → respond with a polite correction,
-   asking the candidate to re-enter an answer relevant to the question.
-3. IMPORTANT: Never echo or repeat the candidate's input or personal details in your response.
-    """
+OUTPUT RULES (important):
+- You must output exactly ONE line and nothing else.
+- If the answer is acceptable, output the single word: VALID
+  - No punctuation, no extra text, no explanation.
+- If the answer is not acceptable, output one short polite sentence asking the candidate to retry,
+  for example: "This field is required, please provide your full name."
+  - Use only one sentence and one line.
+
+VALIDATION LOGIC:
+
+If Question Type is "info" (required fields: Full Name, Email Address, Phone Number,
+Years of Experience, Desired Position(s), Current Location, Tech Stack):
+- Accept as VALID:
+  - Name: accept any non-empty alphabetic string, including single-word names (e.g. "john").
+      Also accept common filler/hedging forms like:
+      "my name is X", "I am X", "I'm X", "I think my name is X", "my full name is X".
+      Treat these as definitive enough and return VALID.
+  - Email: contains "@" and at least one dot after the "@" (example: "a@b.com").
+  - Phone: contains at least 7 digits (digits may have spaces, +, -).
+  - Years of Experience: contains at least one numeric digit OR a short word number ("five").
+  - Position / Location / Tech Stack: any non-empty meaningful text; tech stack preferably comma-separated or contains known tech keywords (python, react, django, java, etc.)
+- Reject (not valid) if answer is: empty, purely off-topic, gibberish, or one of the skip phrases: "i don't know", "idk", "dont know", "not sure".
+- If rejected, reply with a single polite retry sentence (see Output Rules).
+
+If Question Type is "interview":
+- If the candidate answers with "I don't know", "idk", "dont know", or "not sure":
+  -> Always output exactly: VALID
+- Otherwise, accept as VALID if the answer is at least somewhat relevant to the question,
+  even if technically wrong or incomplete.
+- Reject only if the answer is completely off-topic or nonsense.
+- IMPORTANT: Do NOT provide corrections, hints, or explanations for interview answers.
+- For relevant but incorrect answers, you must still output exactly: VALID
+
+
+IMPORTANT:
+- Do NOT echo or repeat the candidate's input.
+- Do NOT output anything other than what is specified in OUTPUT RULES above.
+    """.strip()
+
     response = client.models.generate_content(
         model="gemini-1.5-flash",
         contents=prompt
     )
     return response.text.strip()
+
 
 
 def normalize_field(field_name, raw_answer):
@@ -92,13 +130,13 @@ Rules:
     )
     return response.text.strip()
 
-def generate_questions(tech_stack):
+def generate_questions(tech_stack,experience):
     techs = [t.strip() for t in tech_stack.split(",") if t.strip()]
     prompt = f"""
 You are an interview assistant.
 
 Generate exactly {len(techs)} concise technical interview questions,
-one per technology, for the following list: {', '.join(techs)}.
+one per technology, for the following list: {', '.join(techs)}, considering the experience of {experience} years
 
 Guidelines:
 - Each question must directly test knowledge of the technology.
@@ -123,7 +161,7 @@ show_history()
 if ss.step == "greeting" and not ss.chat_history:
     add_message("assistant",
                 "Hello! I'm TalentScout Assistant. I’ll gather some details from you step by step. "
-                "Type **exit** anytime to quit.\n\nFirst, what is your **Full Name**?")
+                "Type **exit** anytime to quit.\n\nFirst, what is your **Name**?")
     ss.step = "ask_name"
     st.rerun()
 
@@ -140,7 +178,7 @@ if user_input := st.chat_input("Type your response..."):
 
     # -------------------- INFO GATHERING --------------------
     if ss.step == "ask_name":
-        verdict = validate_with_gemini("Full Name", user_input)
+        verdict = validate_with_gemini("Full Name", user_input, q_type="info")
         if is_valid_label(verdict):
             ss.candidate["name"] = normalize_field("Full Name", user_input)
             add_message("assistant", "Got it! Please provide your **Email Address**.")
@@ -149,7 +187,7 @@ if user_input := st.chat_input("Type your response..."):
             add_message("assistant", verdict)
 
     elif ss.step == "ask_email":
-        verdict = validate_with_gemini("Email Address", user_input)
+        verdict = validate_with_gemini("Email Address", user_input, q_type="info")
         if is_valid_label(verdict):
             ss.candidate["email"] = normalize_field("Email Address", user_input)
             add_message("assistant", "Thanks! Now share your **Phone Number**.")
@@ -158,7 +196,7 @@ if user_input := st.chat_input("Type your response..."):
             add_message("assistant", verdict)
 
     elif ss.step == "ask_phone":
-        verdict = validate_with_gemini("Phone Number", user_input)
+        verdict = validate_with_gemini("Phone Number", user_input, q_type="info")
         if is_valid_label(verdict):
             ss.candidate["phone"] = normalize_field("Phone Number", user_input)
             add_message("assistant", "Noted. How many **Years of Experience** do you have?")
@@ -167,7 +205,7 @@ if user_input := st.chat_input("Type your response..."):
             add_message("assistant", verdict)
 
     elif ss.step == "ask_exp":
-        verdict = validate_with_gemini("Years of Experience", user_input)
+        verdict = validate_with_gemini("Years of Experience", user_input, q_type="info")
         if is_valid_label(verdict):
             ss.candidate["experience"] = normalize_field("Years of Experience", user_input)
             add_message("assistant", "Great! What **Position(s)** are you applying for?")
@@ -176,7 +214,7 @@ if user_input := st.chat_input("Type your response..."):
             add_message("assistant", verdict)
 
     elif ss.step == "ask_position":
-        verdict = validate_with_gemini("Desired Position(s)", user_input)
+        verdict = validate_with_gemini("Desired Position(s)", user_input, q_type="info")
         if is_valid_label(verdict):
             ss.candidate["position"] = normalize_field("Desired Position(s)", user_input)
             add_message("assistant", "Got it. Where is your **Current Location**?")
@@ -185,7 +223,7 @@ if user_input := st.chat_input("Type your response..."):
             add_message("assistant", verdict)
 
     elif ss.step == "ask_location":
-        verdict = validate_with_gemini("Current Location", user_input)
+        verdict = validate_with_gemini("Current Location", user_input, q_type="info")
         if is_valid_label(verdict):
             ss.candidate["location"] = normalize_field("Current Location", user_input)
             add_message("assistant",
@@ -195,11 +233,11 @@ if user_input := st.chat_input("Type your response..."):
             add_message("assistant", verdict)
 
     elif ss.step == "ask_tech":
-        verdict = validate_with_gemini("Tech Stack", user_input)
+        verdict = validate_with_gemini("Tech Stack", user_input, q_type="info")
         if is_valid_label(verdict):
             ss.candidate["tech_stack"] = normalize_field("Tech Stack", user_input)
             add_message("assistant", "Thanks! Generating some technical questions for you...")
-            ss.questions = generate_questions(ss.candidate["tech_stack"])
+            ss.questions = generate_questions(ss.candidate["tech_stack"],ss.candidate["experience"])
             ss.step = "ask_question"
             ss.current_q = 0
             if ss.questions:
